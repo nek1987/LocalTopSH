@@ -26,6 +26,7 @@ import * as ask from './ask.js';
 import * as memory from './memory.js';
 import * as sendFile from './sendFile.js';
 import * as message from './message.js';
+import * as meme from './meme.js';
 
 // Re-export callback setters
 export { setApprovalCallback } from './bash.js';
@@ -52,6 +53,7 @@ export const definitions = [
   memory.definition,
   sendFile.definition,
   message.definition,
+  meme.definition,
 ];
 
 // Tool names
@@ -155,6 +157,10 @@ export async function execute(
     
     case 'manage_message':
       result = await message.execute(args as any, ctx.chatId || 0);
+      break;
+    
+    case 'get_meme':
+      result = await meme.execute(args as any);
       break;
     
     default:
