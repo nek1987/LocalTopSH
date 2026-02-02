@@ -24,8 +24,8 @@ const pendingQuestions = new Map<string, PendingQuestion>();
 
 // Global rate limiter - single queue for ALL telegram messages
 let globalLastSend = 0;
-const GLOBAL_MIN_INTERVAL = 100; // 100ms between any messages (10/sec max)
-const GROUP_MIN_INTERVAL = 3000; // 3 seconds for groups
+const GLOBAL_MIN_INTERVAL = 200; // 200ms between any messages (5/sec max)
+const GROUP_MIN_INTERVAL = 5000; // 5 seconds for groups (avoid 429)
 const lastGroupMessage = new Map<number, number>();
 
 // Global mutex for sending

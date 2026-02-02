@@ -181,6 +181,14 @@ const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /dd.*\/dev\/zero/, reason: 'BLOCKED: disk stress' },
   { pattern: /thermal.*test/i, reason: 'BLOCKED: thermal test' },
   
+  // Block installing compilers/toolchains (huge downloads, noexec anyway)
+  { pattern: /rustup|cargo\s+install/i, reason: 'BLOCKED: Rust toolchain not available (noexec, use Python/Node instead)' },
+  { pattern: /\bgo\s+install\b/i, reason: 'BLOCKED: Go toolchain not available' },
+  { pattern: /ghcup|cabal\s+install|stack\s+install/i, reason: 'BLOCKED: Haskell toolchain not available' },
+  { pattern: /curl.*\.sh\s*\|\s*sh/i, reason: 'BLOCKED: Pipe URL to shell is dangerous' },
+  { pattern: /wget.*\.sh\s*\|\s*sh/i, reason: 'BLOCKED: Pipe URL to shell is dangerous' },
+  { pattern: /curl.*\|\s*bash/i, reason: 'BLOCKED: Pipe URL to bash is dangerous' },
+  
   // Block huge packages (disk/memory exhaustion)
   { pattern: /pip\s+install.*\b(tensorflow|tf-nightly|torch|pytorch|jax|paddle)/i, reason: 'BLOCKED: Package too large (several GB). Use smaller libs.' },
   { pattern: /pip\s+install.*\b(transformers|diffusers|timm|detectron)/i, reason: 'BLOCKED: Package too large. Use API instead.' },
