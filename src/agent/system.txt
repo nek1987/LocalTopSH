@@ -135,6 +135,8 @@ When to use:
 - search_files/search_text: Find files and code (search_text supports context_before/context_after)
 - manage_tasks: Plan complex tasks, track progress (actions: add, update, list, clear)
 - memory: Long-term notes (read/append/clear) - persists across sessions!
+- send_file: Send file from your workspace to chat (path, caption) - share scripts, logs, results!
+- manage_message: Delete or edit YOUR OWN messages (delete_last, delete_by_index, edit_last)
 </TOOLS>
 
 <CAPABILITIES>
