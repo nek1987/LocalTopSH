@@ -22,6 +22,68 @@ interface PendingQuestion {
 }
 const pendingQuestions = new Map<string, PendingQuestion>();
 
+// Rate limiter - track last message time per chat
+const lastMessageTime = new Map<number, number>();
+const MIN_MESSAGE_INTERVAL = 1000; // 1 second between messages
+
+// Safe send with rate limiting and retry
+async function safeSend<T>(
+  chatId: number,
+  fn: () => Promise<T>,
+  maxRetries = 3
+): Promise<T | null> {
+  // Rate limit check
+  const now = Date.now();
+  const lastTime = lastMessageTime.get(chatId) || 0;
+  const wait = MIN_MESSAGE_INTERVAL - (now - lastTime);
+  if (wait > 0) {
+    await new Promise(r => setTimeout(r, wait));
+  }
+  lastMessageTime.set(chatId, Date.now());
+  
+  // Retry logic
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (e.response?.error_code === 429) {
+        const retryAfter = e.response?.parameters?.retry_after || 10;
+        console.log(`[rate-limit] 429 error, waiting ${retryAfter}s (attempt ${attempt}/${maxRetries})`);
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, retryAfter * 1000));
+        }
+      } else {
+        console.error(`[send] Error: ${e.message}`);
+        return null;
+      }
+    }
+  }
+  console.error(`[send] Max retries exceeded for chat ${chatId}`);
+  return null;
+}
+
+// Per-user rate limiter (max 1 concurrent request)
+const userLocks = new Map<number, Promise<void>>();
+async function withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+  const existing = userLocks.get(userId);
+  let resolve: () => void;
+  const myLock = new Promise<void>(r => { resolve = r; });
+  userLocks.set(userId, myLock);
+  
+  if (existing) {
+    await existing;
+  }
+  
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+    if (userLocks.get(userId) === myLock) {
+      userLocks.delete(userId);
+    }
+  }
+}
+
 export interface BotConfig {
   telegramToken: string;
   baseUrl: string;
@@ -491,81 +553,80 @@ export function createBot(config: BotConfig) {
     // Save chat ID for approval requests
     sessionChats.set(sessionId, chatId);
     
-    // Get agent for this user (creates workspace if needed)
-    const agent = getAgent(userId);
-    
     console.log(`[bot] ${userId}: ${text.slice(0, 50)}...`);
     
-    await ctx.sendChatAction('typing');
-    const typing = setInterval(() => ctx.sendChatAction('typing').catch(() => {}), 4000);
-    
-    let statusMsg: any = null;
-    const traces: string[] = [];
-    
-    try {
-      // Pass chatId to agent for approval callbacks
-      const response = await agent.run(sessionId, text, async (toolName) => {
-        const emoji = toolEmoji(toolName);
-        traces.push(`${emoji} ${toolName}`);
-        
-        const statusText = `<b>Working...</b>\n\n${traces.join('\n')}`;
-        
-        try {
+    // Use lock to prevent concurrent requests from same user
+    await withUserLock(userId, async () => {
+      // Get agent for this user (creates workspace if needed)
+      const agent = getAgent(userId);
+      
+      await ctx.sendChatAction('typing').catch(() => {});
+      const typing = setInterval(() => ctx.sendChatAction('typing').catch(() => {}), 4000);
+      
+      let statusMsg: any = null;
+      const traces: string[] = [];
+      let lastStatusUpdate = 0;
+      
+      try {
+        const response = await agent.run(sessionId, text, async (toolName) => {
+          const emoji = toolEmoji(toolName);
+          traces.push(`${emoji} ${toolName}`);
+          
+          // Throttle status updates (max 1 per 2 seconds)
+          const now = Date.now();
+          if (now - lastStatusUpdate < 2000) return;
+          lastStatusUpdate = now;
+          
+          const statusText = `<b>Working...</b>\n\n${traces.join('\n')}`;
+          
           if (statusMsg) {
-            await ctx.telegram.editMessageText(
-              chatId, 
-              statusMsg.message_id, 
-              undefined, 
-              statusText, 
-              { parse_mode: 'HTML' }
+            await safeSend(chatId, () => 
+              ctx.telegram.editMessageText(chatId, statusMsg.message_id, undefined, statusText, { parse_mode: 'HTML' })
             );
           } else {
-            statusMsg = await ctx.reply(statusText, { 
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId }
-            });
+            statusMsg = await safeSend(chatId, () => 
+              ctx.reply(statusText, { parse_mode: 'HTML', reply_parameters: { message_id: messageId } })
+            );
           }
-        } catch {}
-      }, chatId);  // <-- pass chatId
-      
-      clearInterval(typing);
-      
-      if (statusMsg) {
-        try { 
-          await ctx.telegram.deleteMessage(chatId, statusMsg.message_id); 
-        } catch {}
-      }
-      
-      const finalResponse = response || '(no response)';
-      const html = mdToHtml(finalResponse);
-      const parts = splitMessage(html);
-      
-      for (let i = 0; i < parts.length; i++) {
-        try {
-          await ctx.reply(parts[i], { 
-            parse_mode: 'HTML',
-            reply_parameters: i === 0 ? { message_id: messageId } : undefined
-          });
-        } catch {
-          await ctx.reply(finalResponse.slice(0, 4000), {
-            reply_parameters: i === 0 ? { message_id: messageId } : undefined
-          });
-          break;
+        }, chatId);
+        
+        clearInterval(typing);
+        
+        // Delete status message
+        if (statusMsg) {
+          try { await ctx.telegram.deleteMessage(chatId, statusMsg.message_id); } catch {}
         }
+        
+        // Send final response with rate limiting
+        const finalResponse = response || '(no response)';
+        const html = mdToHtml(finalResponse);
+        const parts = splitMessage(html);
+        
+        for (let i = 0; i < parts.length; i++) {
+          const sent = await safeSend(chatId, () => 
+            ctx.reply(parts[i], { 
+              parse_mode: 'HTML',
+              reply_parameters: i === 0 ? { message_id: messageId } : undefined
+            })
+          );
+          
+          if (!sent && i === 0) {
+            // Fallback to plain text
+            await safeSend(chatId, () => 
+              ctx.reply(finalResponse.slice(0, 4000), { reply_parameters: { message_id: messageId } })
+            );
+            break;
+          }
+        }
+      } catch (e: any) {
+        clearInterval(typing);
+        console.error('[bot] Error:', e.message);
+        
+        await safeSend(chatId, () => 
+          ctx.reply(`❌ ${e.message?.slice(0, 200)}`, { reply_parameters: { message_id: messageId } })
+        );
       }
-    } catch (e: any) {
-      clearInterval(typing);
-      console.error('[bot] Error:', e);
-      
-      // Try to send error, but don't crash if rate limited
-      try {
-        await ctx.reply(`❌ ${e.message?.slice(0, 200)}`, {
-          reply_parameters: { message_id: messageId }
-        });
-      } catch (sendErr: any) {
-        console.error('[bot] Failed to send error:', sendErr.message);
-      }
-    }
+    });
   });
   
   // Global error handler - prevent crashes
