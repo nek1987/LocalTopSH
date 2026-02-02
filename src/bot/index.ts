@@ -565,42 +565,16 @@ export function createBot(config: BotConfig) {
       // Get agent for this user (creates workspace if needed)
       const agent = getAgent(userId);
       
-      await ctx.sendChatAction('typing').catch(() => {});
-      const typing = setInterval(() => ctx.sendChatAction('typing').catch(() => {}), 4000);
-      
-      let statusMsg: any = null;
-      const traces: string[] = [];
-      let lastStatusUpdate = 0;
+      // Just send typing action periodically (no status messages to avoid rate limits)
+      const typing = setInterval(() => ctx.sendChatAction('typing').catch(() => {}), 5000);
       
       try {
-        const response = await agent.run(sessionId, text, async (toolName) => {
-          const emoji = toolEmoji(toolName);
-          traces.push(`${emoji} ${toolName}`);
-          
-          // Throttle status updates (max 1 per 2 seconds)
-          const now = Date.now();
-          if (now - lastStatusUpdate < 2000) return;
-          lastStatusUpdate = now;
-          
-          const statusText = `<b>Working...</b>\n\n${traces.join('\n')}`;
-          
-          if (statusMsg) {
-            await safeSend(chatId, () => 
-              ctx.telegram.editMessageText(chatId, statusMsg.message_id, undefined, statusText, { parse_mode: 'HTML' })
-            );
-          } else {
-            statusMsg = await safeSend(chatId, () => 
-              ctx.reply(statusText, { parse_mode: 'HTML', reply_parameters: { message_id: messageId } })
-            );
-          }
+        // Run agent - just log tool calls, no Telegram updates during processing
+        const response = await agent.run(sessionId, text, (toolName) => {
+          console.log(`[tool] ${toolName}`);
         }, chatId);
         
         clearInterval(typing);
-        
-        // Delete status message
-        if (statusMsg) {
-          try { await ctx.telegram.deleteMessage(chatId, statusMsg.message_id); } catch {}
-        }
         
         // Change reaction to done
         try {
