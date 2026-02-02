@@ -9,7 +9,7 @@
  */
 
 import OpenAI from 'openai';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as tools from '../tools/index.js';
@@ -35,6 +35,31 @@ export interface Session {
   history: Array<{ user: string; assistant: string }>;
 }
 
+// Session persistence helpers
+const SESSION_FILE = 'SESSION.json';
+
+function loadSession(cwd: string): Session {
+  try {
+    const sessionPath = join(cwd, SESSION_FILE);
+    if (existsSync(sessionPath)) {
+      const data = readFileSync(sessionPath, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error('[session] Error loading:', e);
+  }
+  return { history: [] };
+}
+
+function saveSession(cwd: string, session: Session) {
+  try {
+    const sessionPath = join(cwd, SESSION_FILE);
+    writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[session] Error saving:', e);
+  }
+}
+
 export class ReActAgent {
   private openai: OpenAI;
   private config: AgentConfig;
@@ -54,9 +79,11 @@ export class ReActAgent {
     });
   }
   
-  private getSession(id: string): Session {
+  private getSession(id: string, cwd: string): Session {
     if (!this.sessions.has(id)) {
-      this.sessions.set(id, { history: [] });
+      // Try to load from disk first
+      const loaded = loadSession(cwd);
+      this.sessions.set(id, loaded);
     }
     return this.sessions.get(id)!;
   }
@@ -147,7 +174,7 @@ ${chatHistory}
     chatId?: number,
     chatType?: 'private' | 'group' | 'supergroup' | 'channel'
   ): Promise<string> {
-    const session = this.getSession(sessionId);
+    const session = this.getSession(sessionId, this.config.cwd);
     const dateStr = new Date().toISOString().slice(0, 10);
     const currentUserMsg = `[${dateStr}] ${userMessage}`;
     
@@ -309,17 +336,33 @@ ${chatHistory}
       session.history.shift();
     }
     
-    console.log(`[session] History: ${session.history.length} conversations`);
+    // Persist to disk
+    saveSession(this.config.cwd, session);
+    
+    console.log(`[session] History: ${session.history.length} conversations (saved)`);
     
     return finalResponse;
   }
   
-  clear(sessionId: string) {
+  clear(sessionId: string, cwd?: string) {
     this.sessions.delete(sessionId);
+    // Also clear file if cwd provided
+    if (cwd) {
+      try {
+        const sessionPath = join(cwd, SESSION_FILE);
+        if (existsSync(sessionPath)) {
+          writeFileSync(sessionPath, JSON.stringify({ history: [] }), 'utf-8');
+        }
+      } catch {}
+    }
   }
   
-  getInfo(sessionId: string) {
-    const session = this.sessions.get(sessionId);
+  getInfo(sessionId: string, cwd?: string) {
+    let session = this.sessions.get(sessionId);
+    // Try loading from disk if not in memory
+    if (!session && cwd) {
+      session = loadSession(cwd);
+    }
     return {
       messages: session?.history.length || 0,
       tools: tools.toolNames.length,
