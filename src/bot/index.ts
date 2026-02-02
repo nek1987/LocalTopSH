@@ -1,9 +1,11 @@
 /**
  * Telegram Bot - interface to ReAct Agent
- * Features: groups, reply, traces, exec approvals (non-blocking)
+ * Features: per-user workspace, traces, exec approvals (non-blocking)
  */
 
 import { Telegraf, Context } from 'telegraf';
+import { mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
 import { ReActAgent } from '../agent/react.js';
 import { toolNames, setApprovalCallback, setAskCallback } from '../tools/index.js';
 import { executeCommand } from '../tools/bash.js';
@@ -25,11 +27,9 @@ export interface BotConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
-  cwd: string;
+  cwd: string;  // Base workspace dir
   zaiApiKey?: string;
   tavilyApiKey?: string;
-  allowedUsers?: number[];
-  allowedGroups?: number[];  // Groups where anyone can use bot
   exposedPorts?: number[];
 }
 
@@ -146,20 +146,40 @@ export function createBot(config: BotConfig) {
   // Session to chatId mapping
   const sessionChats = new Map<string, number>();
   
+  // Per-user agents with separate workspaces
+  const userAgents = new Map<number, ReActAgent>();
+  
   bot.telegram.getMe().then(me => {
     botUsername = me.username || '';
     console.log(`[bot] @${botUsername}`);
   });
   
-  const agent = new ReActAgent({
-    baseUrl: config.baseUrl,
-    apiKey: config.apiKey,
-    model: config.model,
-    cwd: config.cwd,
-    zaiApiKey: config.zaiApiKey,
-    tavilyApiKey: config.tavilyApiKey,
-    exposedPorts: config.exposedPorts,
-  });
+  // Get or create agent for user (with personal workspace)
+  function getAgent(userId: number): ReActAgent {
+    if (userAgents.has(userId)) {
+      return userAgents.get(userId)!;
+    }
+    
+    // Create user workspace
+    const userCwd = join(config.cwd, String(userId));
+    if (!existsSync(userCwd)) {
+      mkdirSync(userCwd, { recursive: true });
+      console.log(`[bot] Created workspace for user ${userId}: ${userCwd}`);
+    }
+    
+    const agent = new ReActAgent({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      cwd: userCwd,
+      zaiApiKey: config.zaiApiKey,
+      tavilyApiKey: config.tavilyApiKey,
+      exposedPorts: config.exposedPorts,
+    });
+    
+    userAgents.set(userId, agent);
+    return agent;
+  }
   
   // Set up NON-BLOCKING approval callback - just shows buttons
   setApprovalCallback((chatId, commandId, command, reason) => {
@@ -375,30 +395,6 @@ export function createBot(config: BotConfig) {
     return next();
   });
   
-  // Auth middleware
-  bot.use(async (ctx, next) => {
-    const userId = ctx.from?.id;
-    if (!userId) return;
-    
-    const chatId = ctx.chat?.id;
-    const chatType = (ctx.message as any)?.chat?.type || ctx.chat?.type;
-    const isGroup = chatType === 'group' || chatType === 'supergroup';
-    
-    // In allowed groups - everyone can use
-    if (isGroup && chatId && config.allowedGroups?.includes(chatId)) {
-      return next();
-    }
-    
-    // Check allowed users
-    if (config.allowedUsers?.length && !config.allowedUsers.includes(userId)) {
-      if (chatType === 'private') {
-        return ctx.reply('🚫 Access denied');
-      }
-      return;  // Ignore in non-allowed groups
-    }
-    
-    return next();
-  });
   
   // /start
   bot.command('start', async (ctx) => {
@@ -415,22 +411,26 @@ export function createBot(config: BotConfig) {
   
   // /clear
   bot.command('clear', async (ctx) => {
-    const id = ctx.from?.id?.toString();
-    if (id) {
-      agent.clear(id);
+    const userId = ctx.from?.id;
+    if (userId) {
+      const agent = getAgent(userId);
+      agent.clear(String(userId));
       await ctx.reply('🗑 Session cleared');
     }
   });
   
   // /status
   bot.command('status', async (ctx) => {
-    const id = ctx.from?.id?.toString();
-    if (!id) return;
+    const userId = ctx.from?.id;
+    if (!userId) return;
     
-    const info = agent.getInfo(id);
-    const pending = getSessionPendingCommands(id);
+    const agent = getAgent(userId);
+    const info = agent.getInfo(String(userId));
+    const pending = getSessionPendingCommands(String(userId));
+    const userCwd = join(config.cwd, String(userId));
     const msg = `<b>📊 Status</b>\n` +
       `Model: <code>${config.model}</code>\n` +
+      `Workspace: <code>${userCwd}</code>\n` +
       `History: ${info.messages} msgs\n` +
       `Tools: ${info.tools}\n` +
       `🛡️ Pending commands: ${pending.length}`;
@@ -479,6 +479,9 @@ export function createBot(config: BotConfig) {
     
     // Save chat ID for approval requests
     sessionChats.set(sessionId, chatId);
+    
+    // Get agent for this user (creates workspace if needed)
+    const agent = getAgent(userId);
     
     console.log(`[bot] ${userId}: ${text.slice(0, 50)}...`);
     
