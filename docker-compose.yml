@@ -9,8 +9,8 @@ services:
     volumes:
       - ./workspace:/workspace
     ports:
-      # User port range (4000-4999, each user gets 10 ports based on ID % 100)
-      - "4000-4999:4000-4999"
+      # Shared ports for user services
+      - "4000-4019:4000-4019"
     networks:
       - agent-net
 

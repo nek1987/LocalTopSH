@@ -64,16 +64,8 @@ export class ReActAgent {
   private getSystemPrompt(): string {
     let prompt = readFileSync(SYSTEM_PROMPT_FILE, 'utf-8');
     
-    // Extract userId from cwd path (e.g., /workspace/123456789 -> 123456789)
-    const cwdParts = this.config.cwd.split('/');
-    const userIdStr = cwdParts[cwdParts.length - 1];
-    const userId = parseInt(userIdStr) || 0;
-    
-    // Calculate user's port range (each user gets 10 ports)
-    // Base port 4000, user index = hash of ID mod 100
-    const userIndex = userId % 100;
-    const basePort = 4000 + (userIndex * 10);
-    const userPorts = `${basePort}-${basePort + 9}`;
+    // Shared port pool (all users share, agent checks availability)
+    const userPorts = '4000-4019';
     
     // Replace placeholders
     prompt = prompt
