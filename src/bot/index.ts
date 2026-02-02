@@ -555,6 +555,11 @@ export function createBot(config: BotConfig) {
     
     console.log(`[bot] ${userId}: ${text.slice(0, 50)}...`);
     
+    // React with emoji to show we're working on it
+    try {
+      await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+    } catch {}
+    
     // Use lock to prevent concurrent requests from same user
     await withUserLock(userId, async () => {
       // Get agent for this user (creates workspace if needed)
@@ -597,6 +602,11 @@ export function createBot(config: BotConfig) {
           try { await ctx.telegram.deleteMessage(chatId, statusMsg.message_id); } catch {}
         }
         
+        // Change reaction to done
+        try {
+          await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '✅' }]);
+        } catch {}
+        
         // Send final response with rate limiting
         const finalResponse = response || '(no response)';
         const html = mdToHtml(finalResponse);
@@ -621,6 +631,11 @@ export function createBot(config: BotConfig) {
       } catch (e: any) {
         clearInterval(typing);
         console.error('[bot] Error:', e.message);
+        
+        // Change reaction to error
+        try {
+          await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '❌' }]);
+        } catch {}
         
         await safeSend(chatId, () => 
           ctx.reply(`❌ ${e.message?.slice(0, 200)}`, { reply_parameters: { message_id: messageId } })
