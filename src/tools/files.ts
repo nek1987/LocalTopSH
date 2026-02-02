@@ -68,6 +68,29 @@ function isSensitiveFile(filePath: string): boolean {
 }
 
 /**
+ * Check if path tries to access another user's workspace
+ */
+function isOtherUserWorkspace(filePath: string, userWorkspace: string): boolean {
+  const resolvedPath = resolve(filePath).toLowerCase();
+  const resolvedUserWs = resolve(userWorkspace).toLowerCase();
+  
+  // If path is in /workspace but NOT in user's workspace - block it
+  if (resolvedPath.includes('/workspace/') && !resolvedPath.startsWith(resolvedUserWs)) {
+    // Check if trying to access /workspace/OTHER_USER_ID/
+    const workspaceMatch = resolvedPath.match(/\/workspace\/(\d+)/);
+    if (workspaceMatch) {
+      const pathUserId = workspaceMatch[1];
+      const userWsMatch = resolvedUserWs.match(/\/workspace\/(\d+)/);
+      if (userWsMatch && pathUserId !== userWsMatch[1]) {
+        console.log(`[SECURITY] Blocked access to other user's workspace: ${filePath}`);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Check if path is a symlink pointing outside workspace (symlink escape attack)
  */
 function isSymlinkEscape(filePath: string, workspacePath: string): { escape: boolean; reason?: string } {
@@ -134,6 +157,14 @@ export async function executeRead(
   cwd: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
+  
+  // Security: Block access to other user's workspace
+  if (isOtherUserWorkspace(fullPath, cwd)) {
+    return { 
+      success: false, 
+      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+    };
+  }
   
   // Security: Block reading sensitive files
   if (isSensitiveFile(fullPath)) {
@@ -203,6 +234,14 @@ export async function executeWrite(
   const resolvedPath = resolve(fullPath);
   const resolvedCwd = resolve(cwd);
   
+  // Security: Block access to other user's workspace
+  if (isOtherUserWorkspace(fullPath, cwd)) {
+    return { 
+      success: false, 
+      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+    };
+  }
+  
   // Security: Prevent writing outside workspace
   if (!resolvedPath.startsWith(resolvedCwd + '/') && resolvedPath !== resolvedCwd) {
     console.log(`[SECURITY] Blocked write outside workspace: ${fullPath}`);
@@ -265,6 +304,14 @@ export async function executeEdit(
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
   
+  // Security: Block access to other user's workspace
+  if (isOtherUserWorkspace(fullPath, cwd)) {
+    return { 
+      success: false, 
+      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+    };
+  }
+  
   // Security: Block editing sensitive files
   if (isSensitiveFile(fullPath)) {
     return { 
@@ -325,6 +372,14 @@ export async function executeDelete(
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
   const resolved = resolve(fullPath);
   const cwdResolved = resolve(cwd);
+  
+  // Security: Block access to other user's workspace
+  if (isOtherUserWorkspace(fullPath, cwd)) {
+    return { 
+      success: false, 
+      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+    };
+  }
   
   // Security: only allow deletion within workspace
   if (!resolved.startsWith(cwdResolved)) {
@@ -479,6 +534,14 @@ export async function executeListDirectory(
   const dir = args.path 
     ? (args.path.startsWith('/') ? args.path : join(cwd, args.path))
     : cwd;
+  
+  // Security: Block access to other user's workspace
+  if (isOtherUserWorkspace(dir, cwd)) {
+    return { 
+      success: false, 
+      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+    };
+  }
   
   // Security: Block listing sensitive directories
   const resolvedDir = resolve(dir).toLowerCase();

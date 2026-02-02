@@ -97,6 +97,41 @@ export interface ExecuteContext {
   chatId?: number;
 }
 
+/**
+ * Check if command tries to access other user's workspace
+ */
+function checkWorkspaceIsolation(command: string, userWorkspace: string): { blocked: boolean; reason?: string } {
+  // Extract user ID from workspace path (e.g., /workspace/123456789 -> 123456789)
+  const userMatch = userWorkspace.match(/\/workspace\/(\d+)/);
+  if (!userMatch) {
+    return { blocked: false };  // Not in workspace structure
+  }
+  const userId = userMatch[1];
+  
+  // Patterns that access other workspaces
+  const otherWorkspacePatterns = [
+    // Direct access to /workspace/OTHER_ID
+    new RegExp(`/workspace/(?!${userId})\\d+`, 'i'),
+    // Wildcard access to all workspaces
+    /\/workspace\/\*/,
+    // Find/ls across /workspace root
+    /\b(find|ls|cat|head|tail|grep|less|more)\s+[^|]*\/workspace\s*($|[|;>&])/,
+    // Parent directory traversal from workspace
+    /\.\.\/\.\./,
+  ];
+  
+  for (const pattern of otherWorkspacePatterns) {
+    if (pattern.test(command)) {
+      return { 
+        blocked: true, 
+        reason: 'BLOCKED: Cannot access other user workspaces. Use only your own workspace.' 
+      };
+    }
+  }
+  
+  return { blocked: false };
+}
+
 export async function execute(
   args: { command: string },
   cwd: string | ExecuteContext
@@ -106,6 +141,16 @@ export async function execute(
   const workDir = context.cwd;
   const sessionId = context.sessionId || 'default';
   const chatId = context.chatId || 0;
+  
+  // Check workspace isolation first
+  const workspaceCheck = checkWorkspaceIsolation(args.command, workDir);
+  if (workspaceCheck.blocked) {
+    console.log(`[SECURITY] Workspace isolation: ${args.command}`);
+    return {
+      success: false,
+      error: `🚫 ${workspaceCheck.reason}`,
+    };
+  }
   
   // Check if command is dangerous or blocked
   const { dangerous, blocked, reason } = checkCommand(args.command);
