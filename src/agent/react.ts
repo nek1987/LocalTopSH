@@ -239,7 +239,26 @@ ${chatHistory}
         let hasBlocked = false;
         for (const call of message.tool_calls) {
           const name = call.function.name;
-          const args = JSON.parse(call.function.arguments || '{}');
+          
+          // Parse args with error handling (LLM sometimes returns invalid JSON)
+          let args: Record<string, any> = {};
+          try {
+            args = JSON.parse(call.function.arguments || '{}');
+          } catch (parseError: any) {
+            console.log(`[agent] Error: ${parseError}`);
+            // Try to fix common JSON issues
+            let fixed = (call.function.arguments || '{}')
+              .replace(/,\s*}/g, '}')  // trailing comma
+              .replace(/,\s*]/g, ']')  // trailing comma in array
+              .replace(/'/g, '"')       // single quotes
+              .replace(/\n/g, '\\n');   // unescaped newlines
+            try {
+              args = JSON.parse(fixed);
+            } catch {
+              // Give up, use empty args
+              console.log(`[agent] Could not parse tool args, using empty`);
+            }
+          }
           
           onToolCall?.(name);
           
