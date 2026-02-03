@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd -r agent && useradd -r -g agent -d /home/agent -s /bin/bash agent \
     && mkdir -p /home/agent && chown -R agent:agent /home/agent
 
+# Pre-install common Python packages for web servers
+RUN pip install --break-system-packages flask fastapi uvicorn requests
+
 WORKDIR /app
 
 COPY package*.json ./

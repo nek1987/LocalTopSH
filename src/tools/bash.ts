@@ -308,10 +308,22 @@ export async function executeCommand(
       
       child.unref();
       
-      return { 
-        success: true, 
-        output: `Started in background (PID: ${child.pid})` 
-      };
+      // Wait a bit and check if process is still running
+      await new Promise(r => setTimeout(r, 500));
+      
+      try {
+        process.kill(child.pid!, 0); // Check if alive
+        return { 
+          success: true, 
+          output: `Started in background (PID: ${child.pid}). Check logs with: tail <logfile>` 
+        };
+      } catch {
+        // Process died immediately - likely an error
+        return { 
+          success: false, 
+          error: `Process started but died immediately (PID: ${child.pid}). Check the log file for errors! Common issues: missing module (pip install first), syntax error, port in use.` 
+        };
+      }
     } catch (e: any) {
       return { 
         success: false, 
