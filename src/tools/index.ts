@@ -37,6 +37,7 @@ export { setDeleteMessageCallback, setEditMessageCallback, recordBotMessage } fr
 export { setSendMessageCallback, setExecuteCommandCallback, startScheduler } from './scheduler.js';
 export { getMemoryForPrompt, logGlobal, getGlobalLog, shouldTroll, getTrollMessage, saveChatMessage, getChatHistory } from './memory.js';
 export { getChatHistory as getChatHistoryForPrompt } from './memory.js';
+export { setProxyUrl } from './web.js';
 
 // Tool definitions for OpenAI
 export const definitions = [

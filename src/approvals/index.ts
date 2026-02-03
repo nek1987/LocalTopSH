@@ -30,6 +30,20 @@ const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /\$\{?[A-Z_]*SECRET[A-Z_]*\}?/, reason: 'BLOCKED: Attempted secret variable access' },
   { pattern: /\becho\s+\$[A-Z_]*(KEY|TOKEN|SECRET|PASSWORD|PASS|API|CREDENTIAL)[A-Z_]*/i, reason: 'BLOCKED: Attempted to print secret' },
   
+  // Docker Secrets (mounted at /run/secrets/)
+  { pattern: /\/run\/secrets/, reason: 'BLOCKED: Cannot access Docker Secrets' },
+  { pattern: /\/var\/run\/secrets/, reason: 'BLOCKED: Cannot access secrets' },
+  
+  // Base64 encoding of files (exfiltration)
+  { pattern: /base64\s+[^|<>\s]/, reason: 'BLOCKED: base64 file encoding (exfiltration)' },
+  { pattern: /openssl\s+enc/, reason: 'BLOCKED: openssl encoding (exfiltration)' },
+  { pattern: /xxd\s+[^|<>\s]/, reason: 'BLOCKED: hex dump file' },
+  
+  // Python file reading of secrets
+  { pattern: /python.*open\s*\(\s*['"]\/run/, reason: 'BLOCKED: Python reading /run' },
+  { pattern: /python.*open\s*\(\s*['"]\/etc/, reason: 'BLOCKED: Python reading /etc' },
+  { pattern: /python.*Path\s*\(\s*['"]\/run/, reason: 'BLOCKED: Python Path /run' },
+  
   // Reading sensitive files
   { pattern: /\bcat\s+.*\.env\b/, reason: 'BLOCKED: Reading .env file with secrets' },
   { pattern: /\bless\s+.*\.env\b/, reason: 'BLOCKED: Reading .env file' },
@@ -164,6 +178,11 @@ const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   // Cloud metadata access
   { pattern: /169\.254\.169\.254/, reason: 'BLOCKED: Cloud metadata endpoint' },
   { pattern: /metadata\.google\.internal/, reason: 'BLOCKED: GCP metadata endpoint' },
+  
+  // Internal Docker services
+  { pattern: /curl.*proxy:/, reason: 'BLOCKED: Access to internal proxy service' },
+  { pattern: /wget.*proxy:/, reason: 'BLOCKED: Access to internal proxy service' },
+  { pattern: /http:\/\/proxy[:\s\/]/, reason: 'BLOCKED: Access to internal proxy' },
   
   // Docker socket access (container escape)
   { pattern: /\/var\/run\/docker\.sock/, reason: 'BLOCKED: Docker socket access' },

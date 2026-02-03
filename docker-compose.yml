@@ -1,56 +1,79 @@
 services:
-  agent:
-    build: .
-    container_name: agent
+  # ============ PROXY - holds all API secrets ============
+  proxy:
+    build: ./proxy
+    container_name: proxy
     restart: unless-stopped
-    env_file: .env
+    networks:
+      - agent-net
+    secrets:
+      - source: base_url
+        mode: 0444
+      - source: api_key
+        mode: 0444
+      - source: zai_api_key
+        mode: 0444
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3200/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============ GATEWAY - Telegram bot + Agent ============
+  gateway:
+    build: .
+    container_name: gateway
+    restart: unless-stopped
+    depends_on:
+      proxy:
+        condition: service_healthy
     environment:
+      # NO API KEYS HERE! Only proxy URL
+      - PROXY_URL=http://proxy:3200
+      - MODEL_NAME=openai/gpt-oss-120b
+      - MCP_PORT=3100
+      - MCP_URL=http://localhost:3100
+      - WORKSPACE=/workspace
+      - EXPOSED_PORTS=4000-4999
+      - MAX_CONCURRENT_USERS=10
       - AGENT_CWD=/workspace
+    secrets:
+      - source: telegram_token
+        mode: 0444
     volumes:
       - ./workspace:/workspace
     ports:
-      # User ports (10 users * 10 ports = 100 ports max)
       - "4000-4099:4000-4099"
     networks:
       - agent-net
     
     # ============ SECURITY HARDENING ============
-    
-    # Drop all capabilities except what's needed
     cap_drop:
       - ALL
     cap_add:
-      - CHOWN        # For pip/npm to work
-      - SETUID       # For subprocess creation
-      - SETGID       # For subprocess creation
-      - NET_BIND_SERVICE  # For binding ports < 1024 (optional)
-    
-    # Prevent privilege escalation
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
-    
-    # Resource limits to prevent DoS
     deploy:
       resources:
         limits:
           cpus: '2.0'
           memory: 2G
-          pids: 100  # Limit processes to prevent fork bombs
+          pids: 100
         reservations:
           cpus: '0.5'
           memory: 512M
-    
-    # Temp filesystem for /tmp (not persistent, limited size)
     tmpfs:
       - /tmp:size=100M,mode=1777
-    
-    # Read-only /app (code), writable /workspace only
-    # Note: Can't use read_only:true because npm/pip need to write caches
-    
-    # Prevent container from accessing host network
-    # (agent-net is isolated)
-    
-    # Health check
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('ok')"]
       interval: 30s
@@ -58,7 +81,18 @@ services:
       retries: 3
       start_period: 10s
 
+# ============ SECRETS ============
+secrets:
+  telegram_token:
+    file: ./secrets/telegram_token.txt
+  base_url:
+    file: ./secrets/base_url.txt
+  api_key:
+    file: ./secrets/api_key.txt
+  zai_api_key:
+    file: ./secrets/zai_api_key.txt
+
 networks:
   agent-net:
     driver: bridge
-    internal: false  # Set to true to block all external network access
+    internal: false

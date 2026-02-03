@@ -107,6 +107,11 @@ function isSensitiveFile(filePath: string): boolean {
     return true;
   }
   
+  // Block Docker Secrets directory
+  if (fullPath.includes('/run/secrets') || fullPath.includes('/var/run/secrets')) {
+    return true;
+  }
+  
   return false;
 }
 

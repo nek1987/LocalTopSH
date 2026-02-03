@@ -1,6 +1,6 @@
 /**
  * Web tools - Pattern: Action + Object
- * search_web (Z.AI primary, Tavily fallback), fetch_page
+ * search_web (via Proxy or direct Z.AI), fetch_page
  */
 
 interface SearchResult {
@@ -10,7 +10,36 @@ interface SearchResult {
   date?: string;
 }
 
-// Z.AI Web Search API (v4)
+// Store proxy URL (set at startup)
+let proxyUrl: string | undefined;
+
+export function setProxyUrl(url: string | undefined) {
+  proxyUrl = url;
+  if (url) {
+    console.log('[web] Using proxy for API requests');
+  }
+}
+
+// Z.AI Web Search via Proxy
+async function searchViaProxy(query: string): Promise<SearchResult[]> {
+  if (!proxyUrl) throw new Error('Proxy URL not configured');
+  
+  const response = await fetch(`${proxyUrl}/zai/search?q=${encodeURIComponent(query)}`);
+  
+  if (!response.ok) {
+    throw new Error(`Proxy error: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  return (data.search_result || []).map((r: any) => ({
+    title: r.title,
+    url: r.link,
+    content: r.content,
+    date: r.publish_date,
+  }));
+}
+
+// Z.AI Web Search API (direct, for local dev)
 async function searchZai(query: string, apiKey: string): Promise<SearchResult[]> {
   const response = await fetch('https://api.z.ai/api/paas/v4/web_search', {
     method: 'POST',
@@ -75,8 +104,23 @@ export async function executeSearchWeb(
   try {
     let results: SearchResult[];
     
-    // Try Z.AI first (better structured results)
-    if (zaiApiKey) {
+    // Try Proxy first (most secure)
+    if (proxyUrl) {
+      try {
+        results = await searchViaProxy(args.query);
+      } catch (e: any) {
+        console.log(`[search] Proxy failed: ${e.message}`);
+        // Fall through to direct API
+        if (zaiApiKey) {
+          results = await searchZai(args.query, zaiApiKey);
+        } else if (tavilyApiKey) {
+          results = await searchTavily(args.query, tavilyApiKey);
+        } else {
+          throw e;
+        }
+      }
+    } else if (zaiApiKey) {
+      // Direct Z.AI (local dev)
       try {
         results = await searchZai(args.query, zaiApiKey);
       } catch (e) {
@@ -90,7 +134,7 @@ export async function executeSearchWeb(
     } else if (tavilyApiKey) {
       results = await searchTavily(args.query, tavilyApiKey);
     } else {
-      return { success: false, error: "No search API configured (ZAI_API_KEY or TAVILY_API_KEY)" };
+      return { success: false, error: "No search API configured (PROXY_URL or ZAI_API_KEY)" };
     }
     
     if (!results.length) {
@@ -108,7 +152,32 @@ export async function executeSearchWeb(
   }
 }
 
-// Z.AI Web Reader API (parses pages to markdown)
+// Z.AI Web Reader via Proxy
+async function readPageViaProxy(url: string): Promise<string> {
+  if (!proxyUrl) throw new Error('Proxy URL not configured');
+  
+  const response = await fetch(`${proxyUrl}/zai/read?url=${encodeURIComponent(url)}`);
+  
+  if (!response.ok) {
+    throw new Error(`Proxy error: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  const result = data.reader_result;
+  
+  if (!result?.content) {
+    throw new Error('No content returned');
+  }
+  
+  let output = '';
+  if (result.title) output += `# ${result.title}\n\n`;
+  if (result.description) output += `> ${result.description}\n\n`;
+  output += result.content;
+  
+  return output;
+}
+
+// Z.AI Web Reader API (direct, for local dev)
 async function readPageZai(url: string, apiKey: string): Promise<string> {
   const response = await fetch('https://api.z.ai/api/paas/v4/reader', {
     method: 'POST',
@@ -135,7 +204,6 @@ async function readPageZai(url: string, apiKey: string): Promise<string> {
     throw new Error('No content returned');
   }
   
-  // Build nice output
   let output = '';
   if (result.title) output += `# ${result.title}\n\n`;
   if (result.description) output += `> ${result.description}\n\n`;
@@ -162,11 +230,11 @@ export const fetchPageDefinition = {
 
 // Blocked URL patterns for security
 const BLOCKED_URL_PATTERNS = [
-  // Cloud metadata endpoints (AWS, GCP, Azure, etc.)
-  /^https?:\/\/169\.254\.169\.254/i,  // AWS/GCP metadata
-  /^https?:\/\/metadata\.google\.internal/i,  // GCP metadata
-  /^https?:\/\/metadata\.azure\.internal/i,  // Azure metadata
-  /^https?:\/\/100\.100\.100\.200/i,  // Alibaba metadata
+  // Cloud metadata endpoints
+  /^https?:\/\/169\.254\.169\.254/i,
+  /^https?:\/\/metadata\.google\.internal/i,
+  /^https?:\/\/metadata\.azure\.internal/i,
+  /^https?:\/\/100\.100\.100\.200/i,
   
   // Internal/private networks
   /^https?:\/\/localhost/i,
@@ -175,7 +243,7 @@ const BLOCKED_URL_PATTERNS = [
   /^https?:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\./i,
   /^https?:\/\/192\.168\./i,
   /^https?:\/\/0\.0\.0\.0/i,
-  /^https?:\/\/\[::1\]/i,  // IPv6 localhost
+  /^https?:\/\/\[::1\]/i,
   
   // File protocol
   /^file:/i,
@@ -183,15 +251,14 @@ const BLOCKED_URL_PATTERNS = [
   // Internal Docker networks
   /^https?:\/\/host\.docker\.internal/i,
   /^https?:\/\/docker\.internal/i,
+  /^https?:\/\/proxy:/i,  // Block access to our proxy directly
   
   // Kubernetes internal
   /^https?:\/\/kubernetes\.default/i,
   /^https?:\/\/.*\.cluster\.local/i,
 ];
 
-// Check if URL is safe to fetch
 function isUrlSafe(url: string): { safe: boolean; reason?: string } {
-  // Must be http or https
   if (!url.match(/^https?:\/\//i)) {
     return { safe: false, reason: 'Only http/https URLs allowed' };
   }
@@ -209,14 +276,24 @@ export async function executeFetchPage(
   args: { url: string },
   zaiApiKey?: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
-  // Security: validate URL
   const urlCheck = isUrlSafe(args.url);
   if (!urlCheck.safe) {
     console.log(`[SECURITY] Blocked fetch: ${args.url} - ${urlCheck.reason}`);
     return { success: false, error: `🚫 BLOCKED: ${urlCheck.reason}` };
   }
   
-  // Try Z.AI Reader first (better parsing)
+  // Try Proxy first
+  if (proxyUrl) {
+    try {
+      console.log('[fetch] Using Proxy reader...');
+      const content = await readPageViaProxy(args.url);
+      return { success: true, output: content.slice(0, 50000) };
+    } catch (e: any) {
+      console.log(`[fetch] Proxy reader failed: ${e.message}, falling back`);
+    }
+  }
+  
+  // Try Z.AI Reader (local dev)
   if (zaiApiKey) {
     try {
       console.log('[fetch] Using Z.AI Reader...');
@@ -234,7 +311,6 @@ export async function executeFetchPage(
       redirect: 'follow',
     });
     
-    // Check if redirected to blocked URL
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (location) {

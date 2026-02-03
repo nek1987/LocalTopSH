@@ -8,7 +8,7 @@ import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import OpenAI from 'openai';
 import { ReActAgent } from '../agent/react.js';
-import { toolNames, setApprovalCallback, setAskCallback, setSendFileCallback, setDeleteMessageCallback, setEditMessageCallback, recordBotMessage, setSendMessageCallback, startScheduler, logGlobal, getGlobalLog, shouldTroll, getTrollMessage, saveChatMessage } from '../tools/index.js';
+import { toolNames, setApprovalCallback, setAskCallback, setSendFileCallback, setDeleteMessageCallback, setEditMessageCallback, recordBotMessage, setSendMessageCallback, startScheduler, logGlobal, getGlobalLog, shouldTroll, getTrollMessage, saveChatMessage, setProxyUrl } from '../tools/index.js';
 import { executeCommand } from '../tools/bash.js';
 import { 
   consumePendingCommand, 
@@ -188,6 +188,7 @@ export interface BotConfig {
   model: string;
   cwd: string;  // Base workspace dir
   maxConcurrentUsers?: number;  // Max users processing at once
+  proxyUrl?: string;  // Proxy URL for API requests (secrets isolation)
   zaiApiKey?: string;
   tavilyApiKey?: string;
   exposedPorts?: number[];
@@ -537,6 +538,11 @@ export function createBot(config: BotConfig) {
   // AFK mode (bot ignores messages)
   let afkUntil = 0;
   let afkReason = '';
+  
+  // Set proxy URL for API requests (secrets isolation)
+  if (config.proxyUrl) {
+    setProxyUrl(config.proxyUrl);
+  }
   
   // Initialize LLM for smart reactions
   reactionLLM = new OpenAI({
@@ -1044,18 +1050,6 @@ export function createBot(config: BotConfig) {
           ]],
         },
       });
-    }
-  });
-  
-  // /globallog - show recent activity across all users
-  bot.command('globallog', async (ctx) => {
-    const log = getGlobalLog(30);
-    const msg = `<b>📋 Global Activity (last 30)</b>\n\n<pre>${escapeHtml(log)}</pre>`;
-    try {
-      await ctx.reply(msg, { parse_mode: 'HTML' });
-    } catch {
-      // If too long, send as plain text
-      await ctx.reply(log.slice(0, 4000));
     }
   });
   
