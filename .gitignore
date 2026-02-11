@@ -38,3 +38,5 @@ secrets/
 userbot/session/*.session
 # commit-notify
 # hook-fix
+test_*.txt
+test_*.json
