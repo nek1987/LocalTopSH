@@ -4,6 +4,9 @@ services:
     build: ./proxy
     container_name: proxy
     restart: unless-stopped
+    # Uncomment to expose port (set PROXY_PORT in .env):
+    # ports:
+    #   - "${PROXY_PORT:-3200}:3200"
     environment:
       - TZ=${TZ:-Europe/Moscow}
       - LOG_RAW=${LOG_RAW:-false}
@@ -33,6 +36,9 @@ services:
     build: ./tools-api
     container_name: tools-api
     restart: unless-stopped
+    # Uncomment to expose port (set TOOLS_API_PORT in .env):
+    # ports:
+    #   - "${TOOLS_API_PORT:-8100}:8100"
     environment:
       - TZ=${TZ:-Europe/Moscow}
       - WORKSPACE_ROOT=/workspace
@@ -77,6 +83,9 @@ services:
     build: ./scheduler
     container_name: scheduler
     restart: unless-stopped
+    # Uncomment to expose port (set SCHEDULER_PORT in .env):
+    # ports:
+    #   - "${SCHEDULER_PORT:-8400}:8400"
     environment:
       - TZ=${TZ:-Europe/Moscow}
       - DATA_DIR=/data
@@ -155,6 +164,9 @@ services:
     build: ./core
     container_name: core
     restart: unless-stopped
+    # Uncomment to expose port (set CORE_PORT in .env):
+    # ports:
+    #   - "${CORE_PORT:-4000}:4000"
     depends_on:
       proxy:
         condition: service_healthy
@@ -218,6 +230,9 @@ services:
     build: ./bot
     container_name: bot
     restart: unless-stopped
+    # Uncomment to expose port (set BOT_PORT in .env):
+    # ports:
+    #   - "${BOT_PORT:-4001}:4001"
     depends_on:
       core:
         condition: service_healthy
@@ -260,6 +275,9 @@ services:
     build: ./userbot
     container_name: userbot
     restart: unless-stopped
+    # Uncomment to expose port (set USERBOT_PORT in .env):
+    # ports:
+    #   - "${USERBOT_PORT:-8080}:8080"
     profiles:
       - userbot
     depends_on:
