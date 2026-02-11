@@ -897,6 +897,30 @@ async def refresh_mcp_server(name: str):
         raise HTTPException(503, f"Tools API unavailable: {e}")
 
 
+class McpServerToggle(BaseModel):
+    enabled: bool
+
+
+@router.put("/mcp/servers/{name}/toggle")
+async def toggle_mcp_server(name: str, data: McpServerToggle):
+    """Toggle MCP server enabled/disabled"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                f"{TOOLS_API_URL}/mcp/servers/{name}/toggle",
+                json={"enabled": data.enabled},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                elif resp.status == 404:
+                    raise HTTPException(404, f"Server {name} not found")
+                else:
+                    raise HTTPException(resp.status, "Failed to toggle server")
+    except aiohttp.ClientError as e:
+        raise HTTPException(503, f"Tools API unavailable: {e}")
+
+
 @router.post("/mcp/refresh-all")
 async def refresh_all_mcp():
     """Refresh all MCP servers"""
