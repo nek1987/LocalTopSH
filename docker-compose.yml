@@ -98,6 +98,42 @@ services:
           cpus: '0.3'
           memory: 128M
 
+  # ============ GOOGLE WORKSPACE MCP - Gmail, Calendar, Drive ============
+  google-workspace-mcp:
+    build: ./google-workspace-mcp
+    container_name: google-workspace-mcp
+    restart: unless-stopped
+    ports:
+      - "${GOOGLE_MCP_PORT:-8500}:8500"  # For OAuth callback
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+      - GOOGLE_OAUTH_CLIENT_ID_FILE=/run/secrets/gdrive_client_id
+      - GOOGLE_OAUTH_CLIENT_SECRET_FILE=/run/secrets/gdrive_client_secret
+      - GOOGLE_MCP_CREDENTIALS_DIR=/app/store_creds
+      - OAUTHLIB_INSECURE_TRANSPORT=1
+      - PORT=8500
+      - TOOL_TIER=core
+      # External URL for OAuth callback (set this to your public URL if behind proxy)
+      - WORKSPACE_EXTERNAL_URL=${GOOGLE_WORKSPACE_EXTERNAL_URL:-http://localhost:8500}
+    secrets:
+      - gdrive_client_id
+      - gdrive_client_secret
+    volumes:
+      - google_workspace_creds:/app/store_creds
+    networks:
+      - agent-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
   # ============ DOCKER MCP - Docker management via MCP ============
   docker-mcp:
     build: ./docker-mcp
@@ -315,6 +351,9 @@ secrets:
     file: ./secrets/model_name.txt
   admin_password:
     file: ./secrets/admin_password.txt
+
+volumes:
+  google_workspace_creds:
 
 networks:
   agent-net:
