@@ -182,7 +182,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "schedule_task",
-            "description": "Schedule reminders or recurring tasks.",
+            "description": "REAL scheduler: execute tasks after delay or periodically (recurring). Use this to check GitHub, email, send reminders, etc. Tasks run even when user is offline.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -202,7 +202,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "manage_tasks",
-            "description": "Todo list for planning complex tasks.",
+            "description": "Personal todo/checklist for planning steps. NOT a scheduler - does NOT execute anything automatically. Use schedule_task for periodic/delayed execution.",
             "parameters": {
                 "type": "object",
                 "properties": {
