@@ -373,13 +373,18 @@ def load_config():
 def save_config(config):
     """Save config to file"""
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    # Ensure directory is writable
+    try:
+        os.chmod(os.path.dirname(CONFIG_FILE), 0o777)
+    except:
+        pass
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
     # Ensure file is writable by all (for container user)
     try:
         os.chmod(CONFIG_FILE, 0o666)
-    except:
-        pass
+    except Exception as e:
+        admin_logger.warning(f"Failed to chmod {CONFIG_FILE}: {e}")
 
 
 @router.get("/config")
