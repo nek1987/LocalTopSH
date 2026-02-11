@@ -29,8 +29,9 @@ COPY tests/ ./tests/
 COPY src/agent/system.txt ./src/agent/
 COPY src/approvals/blocked-patterns.json ./src/approvals/
 
-# Create workspace
-RUN mkdir -p /workspace && chmod 777 /workspace
+# Create workspace and Google credentials directory
+RUN mkdir -p /workspace && chmod 777 /workspace && \
+    mkdir -p /data/google_creds && chmod 777 /data/google_creds
 
 ENV AGENT_CWD=/workspace
 
